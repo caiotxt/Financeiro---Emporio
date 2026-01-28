@@ -15,6 +15,7 @@ cd "C:\Users\casad\Desktop\Caio\Python\analises\SHOPEE"
 python dre_shopee.py --datadir ".\meses\02" --dimi ".\costs\Planilha do Dimi 21-01.xlsx" --outdir ".\saida"
 
 Versão genérica
+python dre_shopee.py \
   --datadir ./meses/02 \
   --dimi ./costs/Planilha_do_Dimi.xlsx \
   --outdir ./saida
