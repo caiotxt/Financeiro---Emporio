@@ -6,7 +6,6 @@ import pandas as pd
 import numpy as np
 
 
-# Config padrão
 DEFAULT_PARENT_SHEET = "Performance do Produto"
 DEFAULT_SALES_SHEET  = "Visão Geral das Vendas"
 DEFAULT_DIMI_SHEET   = "PRODUTOS"
@@ -16,7 +15,7 @@ TAXA_NF_DEFAULT     = 0.1037
 TAXA_FIXA_DEFAULT   = 4.0
 
 
-# converters
+
 def br_to_float(x):
     if pd.isna(x):
         return np.nan
@@ -89,7 +88,7 @@ def find_shopee_files(datadir: str):
 
     files = [f for f in os.listdir(datadir) if f.lower().endswith(".xlsx")]
 
-    # ignora temporários do Excel
+    
     files = [f for f in files if not f.startswith("~$")]
 
     parent_candidates = [
@@ -136,13 +135,13 @@ def calcular_lucro_por_produto_preco_real(
         right_on="SKU"
     )
 
-    # Receita real por SKU
+   
     df["receita_real_sku"] = df["unidades_pagas"] * df["preco_shopee"]
 
-    # Taxas variáveis reais
+    
     df["taxas_variaveis_sku"] = df["receita_real_sku"] * (taxa_shopee + taxa_nf)
 
-    # Rateio da taxa fixa (única aproximação que sobra)
+    
     total_unidades = df["unidades_pagas"].sum()
     df["taxa_fixa_sku"] = np.where(
         total_unidades > 0,
@@ -150,7 +149,7 @@ def calcular_lucro_por_produto_preco_real(
         0
     )
 
-    # Lucro real estimado por SKU
+   
     df["lucro_sku"] = (
         df["receita_real_sku"]
         - df["cmv_total_sku"]
@@ -158,7 +157,7 @@ def calcular_lucro_por_produto_preco_real(
         - df["taxa_fixa_sku"]
     )
 
-    # Margem real por SKU
+   
     df["margem_sku"] = np.where(
         df["receita_real_sku"] > 0,
         df["lucro_sku"] / df["receita_real_sku"],
@@ -169,7 +168,7 @@ def calcular_lucro_por_produto_preco_real(
 
 
 
-# principal
+
 def process_month(parent_path, sales_path, dimi_path, out_dir,
                   parent_sheet=DEFAULT_PARENT_SHEET,
                   sales_sheet=DEFAULT_SALES_SHEET,
@@ -180,13 +179,11 @@ def process_month(parent_path, sales_path, dimi_path, out_dir,
 
 
 
-    # --- Load
     parent = pd.read_excel(parent_path, sheet_name=parent_sheet)
     sales  = pd.read_excel(sales_path, sheet_name=sales_sheet)
     dimi   = pd.read_excel(dimi_path, sheet_name=dimi_sheet)
     dimi_preco = pd.read_excel(dimi_path, sheet_name="SHOPEE EMPÓRIO")
 
-    # --- Tratamento do preço Shopee (DIMI - SHOPEE EMPÓRIO)
     sku_col_preco = safe_get(dimi_preco, ["SKU"])
     preco_col = safe_get(dimi_preco, ["Preco Shopee", "Preço Shopee"])
 
@@ -206,7 +203,6 @@ def process_month(parent_path, sales_path, dimi_path, out_dir,
     )
 
 
-    # --- custos (Planilha do Dimi)
     sku_col_dimi = safe_get(dimi, ["SKU", "Unnamed: 0"])
     dimi = dimi.rename(columns={sku_col_dimi: "SKU"})
     dimi["SKU"] = dimi["SKU"].apply(clean_sku)
@@ -233,7 +229,6 @@ def process_month(parent_path, sales_path, dimi_path, out_dir,
         .drop_duplicates(subset=["SKU"], keep="last")
     )
 
-    # --- ParentSKUDetail (quantidades)
     sku_principle_col = safe_get(parent, ["SKU Principle", "SKU Principal", "SKU principle"])
     sku_var_col       = safe_get(parent, ["SKU da Variação", "SKU da Variacao", "SKU Variation", "SKU variation"])
     unidades_col      = safe_get(parent, ["Unidades (Pedido pago)", "Units (Paid order)", "Unidades"])
@@ -267,7 +262,6 @@ def process_month(parent_path, sales_path, dimi_path, out_dir,
 
     parent_filtrado = parent.loc[~mask_agregado].copy()
 
-    # SKU vendido REAL:
     parent_filtrado["sku_vendido"] = np.where(
         (parent_filtrado[sku_var_col].notna()) & (parent_filtrado[sku_var_col] != "-"),
         parent_filtrado[sku_var_col],
@@ -282,7 +276,6 @@ def process_month(parent_path, sales_path, dimi_path, out_dir,
         .sort_values("unidades_pagas", ascending=False)
     )
 
-    # --- Merge qty x custo
     cmv = sku_qty.merge(dimi_cost, how="left", left_on="sku_vendido", right_on="SKU")
     cmv["cmv_total_sku"] = cmv["unidades_pagas"] * cmv["custo_total_unit"]
 
@@ -291,21 +284,18 @@ def process_month(parent_path, sales_path, dimi_path, out_dir,
 
     CMV_TOTAL = float(cmv_ok["cmv_total_sku"].sum())
 
-    # --- Receita / pedidos (Sales Overview)
     fat_col = safe_get(sales, ["Vendas (Pedidos Pagos) (BRL)", "Sales (Paid orders) (BRL)", "Vendas"])
     ped_col = safe_get(sales, ["Compradores (Pedidos Pagos)", "Buyers (Paid orders)", "Pedidos", "Nº Pedidos"])
 
     FATURAMENTO = br_to_float(sales.loc[0, fat_col])
     N_PEDIDOS   = br_to_float(sales.loc[0, ped_col])
 
-    # Taxas e lucro
     TAXAS_VARIAVEIS = FATURAMENTO * (taxa_shopee + taxa_nf)
     TAXA_FIXA = N_PEDIDOS * taxa_fixa
 
     LUCRO = FATURAMENTO - CMV_TOTAL - TAXAS_VARIAVEIS - TAXA_FIXA
     MARGEM = (LUCRO / FATURAMENTO) if FATURAMENTO else np.nan
 
-      # --- Lucro por Produto (SKU) com PREÇO REAL
     lucro_por_sku_real = calcular_lucro_por_produto_preco_real(
     cmv_df=cmv_ok,
     preco_df=preco_por_sku,
@@ -352,7 +342,6 @@ def process_month(parent_path, sales_path, dimi_path, out_dir,
         diagnostico_agregado.sort_values("unidades_pagas", ascending=False)\
             .to_excel(writer, index=False, sheet_name="Diagnostico_P_agregado")
 
-        # ✅ NOVO – lucro por SKU com PREÇO REAL
         lucro_por_sku_real_sorted = lucro_por_sku_real.sort_values("lucro_sku", ascending=False)
         lucro_por_sku_real_sorted.to_excel(
             writer,
@@ -369,10 +358,8 @@ def main():
         description="Calcula CMV exato (SKU filho + B) e DRE Shopee por mês, cruzando ParentSKUDetail x Planilha do Dimi + Sales Overview."
     )
 
-    # NOVO: modo automático por pasta
     parser.add_argument("--datadir", help="Pasta contendo ParentSKUDetail e Sales Overview do mês (modo automático)")
 
-    # Mantido: modo manual (opcional)
     parser.add_argument("--parent", help="Caminho do arquivo ParentSKUDetail (xlsx) (opcional se usar --datadir)")
     parser.add_argument("--sales", help="Caminho do arquivo Sales Overview (xlsx) (opcional se usar --datadir)")
 
@@ -389,7 +376,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Resolver arquivos do mês
     if args.datadir:
         parent_path, sales_path = find_shopee_files(args.datadir)
     else:
