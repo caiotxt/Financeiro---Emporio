@@ -3,7 +3,7 @@ import re
 import pandas as pd
 
 
-# ===== CONFIG =====
+
 PASTA_DADOS = r"C:\Users\casad\Desktop\Caio\Python\analises\MERCADO LIVRE\saida\Caixa_2025"
 ANO_PADRAO = 2025
 
@@ -20,7 +20,7 @@ MAPA_MESES = {
 }
 
 
-# ===== FUNÇÕES =====
+
 def extrair_periodo(nome_arquivo):
     nome = nome_arquivo.upper()
     match = re.search(r"(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)", nome)
@@ -42,7 +42,7 @@ def validar_colunas(df, colunas_obrigatorias, contexto):
         raise ValueError(f"❌ Colunas faltando em {contexto}: {faltando}")
 
 
-# ===== PROCESSAMENTO =====
+
 dfs = []
 
 for arquivo in os.listdir(PASTA_DADOS):
@@ -57,7 +57,7 @@ for arquivo in os.listdir(PASTA_DADOS):
     df = pd.read_excel(caminho, sheet_name=ABA_FATO)
     df.columns = [c.strip() for c in df.columns]
 
-    # colunas obrigatórias do ML
+
     colunas_obrigatorias = [
         "SKU",
         "qtd",
@@ -70,11 +70,11 @@ for arquivo in os.listdir(PASTA_DADOS):
 
     validar_colunas(df, colunas_obrigatorias, f"{arquivo} → {ABA_FATO}")
 
-    # ===== PRODUTO (OPCIONAL) =====
+    
     if "produto" in df.columns:
         df["produto"] = df["produto"].astype(str)
     else:
-        df["produto"] = None  # será enriquecido depois via DIM
+        df["produto"] = None  
 
     # normalização BI
     df = df.rename(columns={
@@ -105,18 +105,18 @@ for arquivo in os.listdir(PASTA_DADOS):
     dfs.append(df)
 
 
-# ===== CONSOLIDAÇÃO =====
+
 fato_final = pd.concat(dfs, ignore_index=True)
 
-# ordenação
+
 fato_final = fato_final.sort_values(["ano", "mes", "sku"])
 
-# validação de chave única
+
 duplicados = fato_final.duplicated(subset=["sku", "periodo"])
 if duplicados.any():
     raise ValueError("❌ Existem SKUs duplicados no mesmo período no ML.")
 
-# ===== OUTPUT =====
+
 fato_final.to_excel(ARQUIVO_SAIDA, index=False)
 
 print("\n✅ PROCESSO FINALIZADO COM SUCESSO")
