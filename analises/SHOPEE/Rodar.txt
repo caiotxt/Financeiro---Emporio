@@ -1,20 +1,6 @@
-SHOPEE
- ├─ costs
- │   └─ Planilha do Dimi 15-01.xlsx
- ├─ meses
- ├─ saida
- ├─ analise_unificada.py
- └─ Rodar.txt
-
-
-Versão específica para maquina local
-
-cd "C:\Users\casad\Desktop\Caio\Python\analises\SHOPEE"
-
-
-python dre_shopee.py --datadir ".\meses\02" --dimi ".\costs\Planilha do Dimi 21-01.xlsx" --outdir ".\saida"
 
 Versão genérica
+
 python dre_shopee.py \
   --datadir ./meses/02 \
   --dimi ./costs/Planilha_do_Dimi.xlsx \
