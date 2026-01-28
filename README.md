@@ -5,6 +5,11 @@ This project provides an analytical view of financial data from a company I work
 
 The analyses focus on understanding financial performance, cost structure, margins, and operational efficiency using data-driven approaches.
 
+Note:
+Profit, pricing, and margin calculations were intentionally removed
+from the public version. These metrics are part of a private service layer.
+
+
 ---
 
 ## Objectives
