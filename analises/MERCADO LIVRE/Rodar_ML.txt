@@ -1,0 +1,11 @@
+C:\Users\casad\Desktop\Caio\Python\analises\MERCADO LIVRE
+ ├─ costs
+ ├─ meses
+ ├─ saida
+ └─ dre_mercado_livre.py
+
+
+cd "C:\Users\casad\Desktop\Caio\Python\analises\MERCADO LIVRE"
+
+
+python dre_mercado_livre.py --collection ".\meses\12\collection12.xlsx" --dimi ".\costs\Planilha do Dimi 21-01.xlsx" --outdir ".\saida"

@@ -1,0 +1,7 @@
+Arquivos Necessários:
+Sales Overview Shopee 
+Disponível em Informações gerenciais -> Vendas -> Selecionar Período ;; 
+
+ParentSKUdetail 
+Disponível em Informações gerenciais -> 
+Produto -> Performance do produto -> Selecionar Perído

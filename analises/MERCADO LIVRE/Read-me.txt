@@ -1,0 +1,5 @@
+Arquivos necessários
+
+Collection_mercado_livre
+Disponível através da interface de Faturamento -> Tarifas e pagamentos
+-> Relatórios de pagamentos e extratos da conta -> Vendas
