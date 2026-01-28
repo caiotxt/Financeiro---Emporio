@@ -25,7 +25,7 @@ def main():
 
     args = parser.parse_args()
 
-    # ===== LOAD =====
+   
     df = pd.read_excel(
         args.collection,
         engine="openpyxl",
@@ -33,7 +33,7 @@ def main():
     )
     dimi = pd.read_excel(args.dimi, sheet_name=args.dimi_sheet)
 
-    # ===== NORMALIZAÇÃO =====
+    # Normalizando a parada
     df["SKU"] = df["SKU do produto (seller_custom_field)"].apply(clean_sku)
 
     df["net_received_amount"] = pd.to_numeric(
@@ -44,7 +44,7 @@ def main():
         df["Valor do produto (transaction_amount)"], errors="coerce"
     ).fillna(0)
 
-    # ===== QUANTIDADE POR SKU =====
+   
     df["qtd"] = np.where(
         df["transaction_amount"] > 0, 1,
         np.where(df["transaction_amount"] < 0, -1, 0)
@@ -57,7 +57,7 @@ def main():
           .query("qtd != 0")
     )
 
-    # ===== RECEITA LÍQUIDA POR SKU =====
+   
     receita_sku = (
         df.dropna(subset=["SKU"])
           .groupby("SKU", as_index=False)["net_received_amount"]
@@ -65,7 +65,7 @@ def main():
           .rename(columns={"net_received_amount": "receita_liquida_sku"})
     )
 
-    # ===== CUSTO (DIMI) =====
+    
     dimi = dimi.rename(columns={dimi.columns[0]: "SKU"})
     dimi["SKU"] = dimi["SKU"].apply(clean_sku)
 
@@ -79,7 +79,7 @@ def main():
         .rename(columns={custo_col: "custo_unit"})
     )
 
-    # ===== CONSOLIDAÇÃO POR SKU =====
+    
     resultado_sku = (
         sku_qty
         .merge(receita_sku, on="SKU", how="left")
@@ -94,13 +94,13 @@ def main():
         np.nan
     )
 
-    # ===== TOTAIS =====
+    
     RECEITA_LIQUIDA = resultado_sku["receita_liquida_sku"].sum()
     CMV_TOTAL = resultado_sku["cmv_total_sku"].sum()
     LUCRO = resultado_sku["lucro_sku"].sum()
     MARGEM = LUCRO / RECEITA_LIQUIDA if RECEITA_LIQUIDA else np.nan
 
-    # ===== RESUMO =====
+    
     resumo = pd.DataFrame([{
         "Receita Líquida": RECEITA_LIQUIDA,
         "CMV": CMV_TOTAL,
@@ -108,7 +108,7 @@ def main():
         "Margem": MARGEM
     }])
 
-    # ===== OUTPUT =====
+    
     ensure_dir(args.outdir)
     out_path = os.path.join(args.outdir, "DRE_Mercado_Livre.xlsx")
 
@@ -119,7 +119,7 @@ def main():
         resumo.to_excel(writer, index=False, sheet_name="Resumo_DRE")
 
     print(f"✅ Relatório gerado: {out_path}")
-    print(f"💰 Lucro Total: {LUCRO:,.2f}")
+    print(f"Lucro Total: {LUCRO:,.2f}")
 
 if __name__ == "__main__":
     main()
