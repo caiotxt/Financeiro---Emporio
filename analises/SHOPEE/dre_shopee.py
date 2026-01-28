@@ -5,26 +5,40 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 
+# ======================================================
+# PUBLIC VERSION
+# Core business rules were intentionally abstracted.
+# This script is for demonstration and portfolio purposes.
+# ======================================================
 
 DEFAULT_PARENT_SHEET = "Performance do Produto"
 DEFAULT_SALES_SHEET  = "Visão Geral das Vendas"
-DEFAULT_DIMI_SHEET   = "PRODUTOS"
-
-TAXA_SHOPEE_DEFAULT = 0.20
-TAXA_NF_DEFAULT     = 0.1037
-TAXA_FIXA_DEFAULT   = 4.0
+DEFAULT_COSTS_SHEET  = "PRODUTOS"
 
 
+# ------------------------------------------------------------------
+# Business rules abstraction (real implementation is private)
+# ------------------------------------------------------------------
+def get_business_fees():
+    """
+    Placeholder for marketplace fees and fixed costs.
+    Real values are part of the private service layer.
+    """
+    return {
+        "variable_rate": 0.0,
+        "fixed_fee_per_order": 0.0
+    }
 
+
+# ------------------------------------------------------------------
+# Utility functions
+# ------------------------------------------------------------------
 def br_to_float(x):
     if pd.isna(x):
         return np.nan
     if isinstance(x, (int, float, np.number)):
         return float(x)
-    s = str(x).strip()
-    if s in ["", "-", "nan", "None"]:
-        return np.nan
-    s = s.replace(".", "").replace(",", ".")
+    s = str(x).strip().replace(".", "").replace(",", ".")
     try:
         return float(s)
     except ValueError:
@@ -35,374 +49,127 @@ def clean_sku(x):
     if pd.isna(x):
         return np.nan
     s = str(x).strip()
-    if s in ["", "-", "nan", "None"]:
-        return np.nan
-    return s
+    return s if s not in ["", "-", "nan", "None"] else np.nan
 
 
-def safe_get(df, col_candidates):
-    for c in col_candidates:
+def safe_get(df, candidates):
+    for c in candidates:
         if c in df.columns:
             return c
-    raise KeyError(f"Nenhuma das colunas esperadas foi encontrada: {col_candidates}")
+    raise KeyError(f"Expected column not found: {candidates}")
 
 
-def infer_period_label(sales_df):
-    if "Data" in sales_df.columns and len(sales_df) > 0:
-        v = str(sales_df.loc[0, "Data"])
-        v = v.replace("—", "–").strip()
-        if "–" in v:
-            return v
+def infer_period_label(df):
+    if "Data" in df.columns and len(df) > 0:
+        return str(df.loc[0, "Data"])
     return datetime.now().strftime("%Y-%m")
 
 
-def normalize_period_for_filename(period_label: str) -> str:
-    try:
-        parts = period_label.split("–")
-        if len(parts) == 2:
-            d1 = datetime.strptime(parts[0].strip(), "%d/%m/%Y")
-            d2 = datetime.strptime(parts[1].strip(), "%d/%m/%Y")
-            return f"{d1:%Y-%m}_{d2:%Y-%m}"
-    except Exception:
-        pass
-    safe = re.sub(r"[^0-9A-Za-z_-]+", "_", period_label.strip())
-    return safe[:60] if safe else datetime.now().strftime("%Y-%m")
+def normalize_period_for_filename(label):
+    safe = re.sub(r"[^0-9A-Za-z_-]+", "_", label)
+    return safe[:50]
 
 
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
-def find_shopee_files(datadir: str):
-    """
-    Procura automaticamente pelos arquivos ParentSKUDetail e Sales Overview dentro de uma pasta.
+# ------------------------------------------------------------------
+# Core processing (generic logic only)
+# ------------------------------------------------------------------
+def process_month(parent_path, sales_path, costs_path, out_dir):
+    parent = pd.read_excel(parent_path)
+    sales  = pd.read_excel(sales_path)
+    costs  = pd.read_excel(costs_path)
 
-    Regras de busca (por nome do arquivo):
-      - ParentSKUDetail: contém "parent" ou "parentsku"
-      - Sales Overview: contém "sales_overview" / "sales overview" / "visão geral"
+    sku_col = safe_get(parent, ["SKU", "SKU Principal", "SKU Principle"])
+    qty_col = safe_get(parent, ["Unidades", "Units", "Units (Paid order)"])
 
-    Se encontrar mais de 1 candidato de cada, lança erro para evitar pegar o arquivo errado.
-    """
-    if not os.path.isdir(datadir):
-        raise FileNotFoundError(f"❌ Pasta não encontrada: {datadir}")
+    parent[sku_col] = parent[sku_col].apply(clean_sku)
+    parent["units"] = pd.to_numeric(parent[qty_col], errors="coerce").fillna(0)
 
-    files = [f for f in os.listdir(datadir) if f.lower().endswith(".xlsx")]
-
-    
-    files = [f for f in files if not f.startswith("~$")]
-
-    parent_candidates = [
-        f for f in files
-        if re.search(r"(parent\s*sku|parentsku|parent)", f.lower())
-    ]
-
-    sales_candidates = [
-        f for f in files
-        if re.search(r"(sales[_\s-]*overview|vis[aã]o[_\s-]*geral)", f.lower())
-    ]
-
-    if len(parent_candidates) == 0:
-        raise FileNotFoundError("❌ ParentSKUDetail não encontrado na pasta (procure por 'parent' no nome do arquivo).")
-    if len(sales_candidates) == 0:
-        raise FileNotFoundError("❌ Sales Overview não encontrado na pasta (procure por 'sales_overview' ou 'visão geral').")
-
-    if len(parent_candidates) > 1:
-        raise FileExistsError(f"⚠️ Mais de um ParentSKUDetail encontrado: {parent_candidates}")
-    if len(sales_candidates) > 1:
-        raise FileExistsError(f"⚠️ Mais de um Sales Overview encontrado: {sales_candidates}")
-
-    parent_path = os.path.join(datadir, parent_candidates[0])
-    sales_path  = os.path.join(datadir, sales_candidates[0])
-
-    return parent_path, sales_path
-
-def calcular_lucro_por_produto_preco_real(
-    cmv_df,
-    preco_df,
-    taxa_shopee,
-    taxa_nf,
-    taxa_fixa_total
-):
-
-
-    df = cmv_df.copy()
-
-    # Merge preço real
-    df = df.merge(
-        preco_df,
-        how="left",
-        left_on="sku_vendido",
-        right_on="SKU"
-    )
-
-   
-    df["receita_real_sku"] = df["unidades_pagas"] * df["preco_shopee"]
-
-    
-    df["taxas_variaveis_sku"] = df["receita_real_sku"] * (taxa_shopee + taxa_nf)
-
-    
-    total_unidades = df["unidades_pagas"].sum()
-    df["taxa_fixa_sku"] = np.where(
-        total_unidades > 0,
-        taxa_fixa_total * (df["unidades_pagas"] / total_unidades),
-        0
-    )
-
-   
-    df["lucro_sku"] = (
-        df["receita_real_sku"]
-        - df["cmv_total_sku"]
-        - df["taxas_variaveis_sku"]
-        - df["taxa_fixa_sku"]
-    )
-
-   
-    df["margem_sku"] = np.where(
-        df["receita_real_sku"] > 0,
-        df["lucro_sku"] / df["receita_real_sku"],
-        np.nan
-    )
-
-    return df
-
-
-
-
-def process_month(parent_path, sales_path, dimi_path, out_dir,
-                  parent_sheet=DEFAULT_PARENT_SHEET,
-                  sales_sheet=DEFAULT_SALES_SHEET,
-                  dimi_sheet=DEFAULT_DIMI_SHEET,
-                  taxa_shopee=TAXA_SHOPEE_DEFAULT,
-                  taxa_nf=TAXA_NF_DEFAULT,
-                  taxa_fixa=TAXA_FIXA_DEFAULT):
-
-
-
-    parent = pd.read_excel(parent_path, sheet_name=parent_sheet)
-    sales  = pd.read_excel(sales_path, sheet_name=sales_sheet)
-    dimi   = pd.read_excel(dimi_path, sheet_name=dimi_sheet)
-    dimi_preco = pd.read_excel(dimi_path, sheet_name="SHOPEE EMPÓRIO")
-
-    sku_col_preco = safe_get(dimi_preco, ["SKU"])
-    preco_col = safe_get(dimi_preco, ["Preco Shopee", "Preço Shopee"])
-
-    dimi_preco = dimi_preco.rename(columns={
-        sku_col_preco: "SKU",
-        preco_col: "preco_shopee"
-    })
-
-    dimi_preco["SKU"] = dimi_preco["SKU"].apply(clean_sku)
-    dimi_preco["preco_shopee"] = pd.to_numeric(dimi_preco["preco_shopee"], errors="coerce")
-
-
-    preco_por_sku = (
-     dimi_preco[["SKU", "preco_shopee"]]
-     .dropna(subset=["SKU", "preco_shopee"])
-     .drop_duplicates(subset=["SKU"], keep="last")
-    )
-
-
-    sku_col_dimi = safe_get(dimi, ["SKU", "Unnamed: 0"])
-    dimi = dimi.rename(columns={sku_col_dimi: "SKU"})
-    dimi["SKU"] = dimi["SKU"].apply(clean_sku)
-
-    custo_col = safe_get(dimi, ["Custo", "custo", "CUSTO"])
-    emb_col   = safe_get(dimi, ["Embalagem", "embalagem", "EMBALAGEM"])
-
-    dimi[custo_col] = pd.to_numeric(dimi[custo_col], errors="coerce")
-    dimi[emb_col]   = pd.to_numeric(dimi[emb_col], errors="coerce")
-
-    dimi["custo_total_unit"] = dimi[custo_col].fillna(0) + dimi[emb_col].fillna(0)
-
-    keep_cols = ["SKU", "custo_total_unit"]
-    for c in ["Produto", "PRODUTO", "Descrição", "DESCRICAO", "Descricao"]:
-        if c in dimi.columns:
-            dimi = dimi.rename(columns={c: "Produto"})
-            if "Produto" not in keep_cols:
-                keep_cols.append("Produto")
-            break
-
-    dimi_cost = (
-        dimi[keep_cols]
-        .dropna(subset=["SKU"])
-        .drop_duplicates(subset=["SKU"], keep="last")
-    )
-
-    sku_principle_col = safe_get(parent, ["SKU Principle", "SKU Principal", "SKU principle"])
-    sku_var_col       = safe_get(parent, ["SKU da Variação", "SKU da Variacao", "SKU Variation", "SKU variation"])
-    unidades_col      = safe_get(parent, ["Unidades (Pedido pago)", "Units (Paid order)", "Unidades"])
-
-    parent[sku_principle_col] = parent[sku_principle_col].apply(clean_sku)
-    parent[sku_var_col]       = parent[sku_var_col].apply(lambda x: str(x).strip() if not pd.isna(x) else np.nan)
-
-    parent[sku_var_col] = parent[sku_var_col].replace({"": np.nan, "nan": np.nan, "None": np.nan})
-    parent[sku_var_col] = parent[sku_var_col].apply(lambda x: "-" if str(x).strip() == "-" else clean_sku(x))
-
-    parent["unidades_pagas"] = pd.to_numeric(parent[unidades_col], errors="coerce").fillna(0)
-
-    # --- REGRA: Ignorar linha agregada do P quando existirem filhos
-    def has_real_child(series):
-        return ((series.notna()) & (series != "-")).any()
-
-    has_child = parent.groupby(sku_principle_col)[sku_var_col].apply(has_real_child)
-    parents_with_child = set(has_child[has_child].index)
-
-    mask_agregado = (
-        (parent[sku_var_col] == "-")
-        & (parent[sku_principle_col].isin(parents_with_child))
-        & (parent["unidades_pagas"] > 0)
-    )
-
-    diagnostico_agregado = parent.loc[mask_agregado, [sku_principle_col, sku_var_col, "unidades_pagas"]].copy()
-    diagnostico_agregado = diagnostico_agregado.rename(columns={
-        sku_principle_col: "SKU_Principle",
-        sku_var_col: "SKU_Variacao"
-    })
-
-    parent_filtrado = parent.loc[~mask_agregado].copy()
-
-    parent_filtrado["sku_vendido"] = np.where(
-        (parent_filtrado[sku_var_col].notna()) & (parent_filtrado[sku_var_col] != "-"),
-        parent_filtrado[sku_var_col],
-        parent_filtrado[sku_principle_col]
-    )
-    parent_filtrado["sku_vendido"] = parent_filtrado["sku_vendido"].apply(clean_sku)
-
-    sku_qty = (
-        parent_filtrado.groupby("sku_vendido", as_index=False)["unidades_pagas"]
+    sku_summary = (
+        parent.groupby(sku_col, as_index=False)["units"]
         .sum()
-        .query("unidades_pagas > 0")
-        .sort_values("unidades_pagas", ascending=False)
+        .query("units > 0")
     )
 
-    cmv = sku_qty.merge(dimi_cost, how="left", left_on="sku_vendido", right_on="SKU")
-    cmv["cmv_total_sku"] = cmv["unidades_pagas"] * cmv["custo_total_unit"]
+    cost_col = safe_get(costs, ["Custo", "COST"])
+    costs[cost_col] = pd.to_numeric(costs[cost_col], errors="coerce")
 
-    skus_sem_custo = cmv[cmv["custo_total_unit"].isna()].copy()
-    cmv_ok = cmv[~cmv["custo_total_unit"].isna()].copy()
+    sku_summary = sku_summary.merge(
+        costs[[sku_col, cost_col]],
+        how="left",
+        on=sku_col
+    )
 
-    CMV_TOTAL = float(cmv_ok["cmv_total_sku"].sum())
+    sku_summary["estimated_cmv"] = sku_summary["units"] * sku_summary[cost_col]
+    CMV_TOTAL = sku_summary["estimated_cmv"].sum()
 
-    fat_col = safe_get(sales, ["Vendas (Pedidos Pagos) (BRL)", "Sales (Paid orders) (BRL)", "Vendas"])
-    ped_col = safe_get(sales, ["Compradores (Pedidos Pagos)", "Buyers (Paid orders)", "Pedidos", "Nº Pedidos"])
+    revenue_col = safe_get(sales, ["Vendas", "Sales"])
+    orders_col  = safe_get(sales, ["Pedidos", "Orders"])
 
-    FATURAMENTO = br_to_float(sales.loc[0, fat_col])
-    N_PEDIDOS   = br_to_float(sales.loc[0, ped_col])
+    REVENUE = br_to_float(sales.loc[0, revenue_col])
+    ORDERS  = br_to_float(sales.loc[0, orders_col])
 
-    TAXAS_VARIAVEIS = FATURAMENTO * (taxa_shopee + taxa_nf)
-    TAXA_FIXA = N_PEDIDOS * taxa_fixa
+    fees = get_business_fees()
 
-    LUCRO = FATURAMENTO - CMV_TOTAL - TAXAS_VARIAVEIS - TAXA_FIXA
-    MARGEM = (LUCRO / FATURAMENTO) if FATURAMENTO else np.nan
+    VARIABLE_COSTS = REVENUE * fees["variable_rate"]
+    FIXED_COSTS    = ORDERS * fees["fixed_fee_per_order"]
 
-    lucro_por_sku_real = calcular_lucro_por_produto_preco_real(
-    cmv_df=cmv_ok,
-    preco_df=preco_por_sku,
-    taxa_shopee=taxa_shopee,
-    taxa_nf=taxa_nf,
-    taxa_fixa_total=TAXA_FIXA
-)
-
+    # --------------------------------------------------
+    # Profit calculation intentionally abstracted
+    # --------------------------------------------------
+    PROFIT = np.nan
+    MARGIN = np.nan
 
     period_label = infer_period_label(sales)
-    period_file = normalize_period_for_filename(period_label)
+    period_file  = normalize_period_for_filename(period_label)
 
     resumo = pd.DataFrame([{
-        "Periodo": period_label,
-        "Faturamento (Pedidos Pagos)": FATURAMENTO,
-        "CMV Total (itens com custo)": CMV_TOTAL,
-        "Taxas variáveis (Shopee+NF)": TAXAS_VARIAVEIS,
-        "Taxa fixa (R$ por pedido)": TAXA_FIXA,
-        "N pedidos (Paid)": N_PEDIDOS,
-        "Lucro": LUCRO,
-        "Margem": MARGEM,
-        "Taxa Shopee (%)": taxa_shopee,
-        "Taxa NF (%)": taxa_nf,
-        "Taxa fixa (R$)": taxa_fixa,
+        "Period": period_label,
+        "Revenue": REVENUE,
+        "CMV": CMV_TOTAL,
+        "Variable Costs": VARIABLE_COSTS,
+        "Fixed Costs": FIXED_COSTS,
+        "Profit": PROFIT,
+        "Margin": MARGIN
     }])
 
-    # --- Output
     ensure_dir(out_dir)
-    out_path = os.path.join(out_dir, f"DRE_CMV_{period_file}.xlsx")
-
-
-    print("DEBUG ▶ vou gravar LUCRO POR SKU PREÇO REAL")
-    print(lucro_por_sku_real.head())
+    out_path = os.path.join(out_dir, f"Financial_Report_{period_file}.xlsx")
 
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
-        cmv.sort_values("unidades_pagas", ascending=False)\
-            .to_excel(writer, index=False, sheet_name="CMV_por_SKU")
-
-        resumo.to_excel(writer, index=False, sheet_name="Resumo_DRE")
-
-        skus_sem_custo.sort_values("unidades_pagas", ascending=False)\
-            .to_excel(writer, index=False, sheet_name="SKUs_sem_custo")
-
-        diagnostico_agregado.sort_values("unidades_pagas", ascending=False)\
-            .to_excel(writer, index=False, sheet_name="Diagnostico_P_agregado")
-
-        lucro_por_sku_real_sorted = lucro_por_sku_real.sort_values("lucro_sku", ascending=False)
-        lucro_por_sku_real_sorted.to_excel(
-            writer,
-            index=False,
-            sheet_name="Lucro_por_SKU_PRECO_REAL"
-        )
-
+        sku_summary.to_excel(writer, index=False, sheet_name="CMV_by_SKU")
+        resumo.to_excel(writer, index=False, sheet_name="Summary")
 
     return out_path
 
 
+# ------------------------------------------------------------------
+# CLI
+# ------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(
-        description="Calcula CMV exato (SKU filho + B) e DRE Shopee por mês, cruzando ParentSKUDetail x Planilha do Dimi + Sales Overview."
+        description="Generic financial analysis pipeline (public version)."
     )
 
-    parser.add_argument("--datadir", help="Pasta contendo ParentSKUDetail e Sales Overview do mês (modo automático)")
-
-    parser.add_argument("--parent", help="Caminho do arquivo ParentSKUDetail (xlsx) (opcional se usar --datadir)")
-    parser.add_argument("--sales", help="Caminho do arquivo Sales Overview (xlsx) (opcional se usar --datadir)")
-
-    parser.add_argument("--dimi", required=True, help="Caminho da Planilha do Dimi (xlsx)")
-    parser.add_argument("--outdir", default="saida_dre", help="Pasta de saída para o Excel final")
-
-    parser.add_argument("--parent-sheet", default=DEFAULT_PARENT_SHEET, help="Nome da aba do ParentSKUDetail")
-    parser.add_argument("--sales-sheet", default=DEFAULT_SALES_SHEET, help="Nome da aba do Sales Overview")
-    parser.add_argument("--dimi-sheet", default=DEFAULT_DIMI_SHEET, help="Nome da aba da Planilha do Dimi (Produtos)")
-
-    parser.add_argument("--taxa-shopee", type=float, default=TAXA_SHOPEE_DEFAULT, help="Taxa Shopee (ex: 0.20)")
-    parser.add_argument("--taxa-nf", type=float, default=TAXA_NF_DEFAULT, help="Taxa NF (ex: 0.0965)")
-    parser.add_argument("--taxa-fixa", type=float, default=TAXA_FIXA_DEFAULT, help="Taxa fixa por pedido (ex: 4.0)")
+    parser.add_argument("--parent", required=True, help="Parent SKU report")
+    parser.add_argument("--sales", required=True, help="Sales overview report")
+    parser.add_argument("--costs", required=True, help="Cost reference file")
+    parser.add_argument("--outdir", default="output", help="Output directory")
 
     args = parser.parse_args()
 
-    if args.datadir:
-        parent_path, sales_path = find_shopee_files(args.datadir)
-    else:
-        if not args.parent or not args.sales:
-            raise SystemExit("❌ Você precisa informar --datadir OU ( --parent e --sales ).")
-        parent_path, sales_path = args.parent, args.sales
-
-    print("📄 ParentSKUDetail:", parent_path)
-    print("📄 Sales Overview:", sales_path)
-
-    out = process_month(
-        parent_path=parent_path,
-        sales_path=sales_path,
-        dimi_path=args.dimi,
-        out_dir=args.outdir,
-        parent_sheet=args.parent_sheet,
-        sales_sheet=args.sales_sheet,
-        dimi_sheet=args.dimi_sheet,
-        taxa_shopee=args.taxa_shopee,
-        taxa_nf=args.taxa_nf,
-        taxa_fixa=args.taxa_fixa,
+    output = process_month(
+        parent_path=args.parent,
+        sales_path=args.sales,
+        costs_path=args.costs,
+        out_dir=args.outdir
     )
 
-    print(f"✅ Relatório gerado com sucesso: {out}")
+    print(f"Report generated: {output}")
 
-
-print("__name__ =", __name__)
 
 if __name__ == "__main__":
     main()
