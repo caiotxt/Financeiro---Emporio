@@ -55,10 +55,10 @@ def extrair_produto_por_sku(df, col_sku, col_produto):
 def processar_collection(collection_path):
     df = pd.read_excel(collection_path, engine="openpyxl")
 
-    # ===== SKU =====
+    
     df["SKU"] = df["SKU do produto (seller_custom_field)"].apply(clean_sku)
 
-    # ===== PRODUTO =====
+  
     if COL_PRODUTO not in df.columns:
         raise ValueError(f"❌ Coluna de produto não encontrada: {COL_PRODUTO}")
 
@@ -68,7 +68,7 @@ def processar_collection(collection_path):
         col_produto=COL_PRODUTO
     )
 
-    # ===== VALORES =====
+
     df["net_received_amount"] = pd.to_numeric(
         df["Valor total recebido (net_received_amount)"], errors="coerce"
     ).fillna(0)
@@ -77,7 +77,7 @@ def processar_collection(collection_path):
         df["Valor do produto (transaction_amount)"], errors="coerce"
     ).fillna(0)
 
-    # ===== QUANTIDADE =====
+ 
     df["qtd"] = np.where(
         df["transaction_amount"] > 0, 1,
         np.where(df["transaction_amount"] < 0, -1, 0)
@@ -90,7 +90,7 @@ def processar_collection(collection_path):
           .query("qtd != 0")
     )
 
-    # ===== RECEITA LÍQUIDA POR SKU =====
+
     receita_sku = (
         df.dropna(subset=["SKU"])
           .groupby("SKU", as_index=False)["net_received_amount"]
@@ -98,7 +98,7 @@ def processar_collection(collection_path):
           .rename(columns={"net_received_amount": "receita_liquida_sku"})
     )
 
-    # ===== FATURAMENTO BRUTO POR SKU (🔥 NOVO NO FATO) =====
+
     faturamento_sku = (
         df.dropna(subset=["SKU"])
           .groupby("SKU", as_index=False)["transaction_amount"]
@@ -106,7 +106,7 @@ def processar_collection(collection_path):
           .rename(columns={"transaction_amount": "faturamento_bruto_sku"})
     )
 
-    # ===== CUSTO (DIMI) =====
+  
     dimi = pd.read_excel(DIMI_PATH, sheet_name=DIMI_SHEET)
     dimi = dimi.rename(columns={dimi.columns[0]: "SKU"})
     dimi["SKU"] = dimi["SKU"].apply(clean_sku)
@@ -121,11 +121,11 @@ def processar_collection(collection_path):
         .rename(columns={custo_col: "custo_unit"})
     )
 
-    # ===== CONSOLIDAÇÃO FINAL =====
+
     resultado = (
         sku_qty
         .merge(receita_sku, on="SKU", how="left")
-        .merge(faturamento_sku, on="SKU", how="left")   # 👈 AQUI ESTÁ A MUDANÇA
+        .merge(faturamento_sku, on="SKU", how="left")  
         .merge(dimi_cost, on="SKU", how="left")
         .merge(produto_sku, on="SKU", how="left")
     )
@@ -137,7 +137,7 @@ def processar_collection(collection_path):
     return resultado
 
 
-# ===== EXECUÇÃO =====
+
 ensure_dir(OUTDIR)
 
 for pasta_mes in sorted(os.listdir(BASE_MESES)):
