@@ -3,6 +3,6 @@ Versão genérica
 
 
 python dre_mercado_livre.py \
-  --collection ./meses/12/collection.xlsx \
-  --dimi ./costs/Planilha_do_Dimi.xlsx \
+  --collection ./meses/mm/collection.xlsx \
+  --costs ./costs/Planilha_costs.xlsx \
   --outdir ./saida

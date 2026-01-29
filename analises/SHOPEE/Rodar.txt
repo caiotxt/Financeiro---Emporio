@@ -2,8 +2,8 @@
 Versão genérica
 
 python dre_shopee.py \
-  --datadir ./meses/02 \
-  --dimi ./costs/Planilha_do_Dimi.xlsx \
+  --datadir ./meses/mm \
+  --costs ./costs/Planilha_costs.xlsx \
   --outdir ./saida
 
 
